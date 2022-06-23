@@ -1,12 +1,11 @@
 import random
 import copy
-from tkinter.tix import Tree
 import numpy as np
 from collections import deque
 from configs import args
 
 
-class board(object):
+class Board(object):
 
     def __init__(self):
         assert args.border_size % 2 == 1, print("border_size 需要为奇数")
@@ -42,7 +41,7 @@ class board(object):
         pass
 
 
-class game(object):
+class Game(object):
 
     def __init__(self, board):
         self.board = board
@@ -160,24 +159,28 @@ class game(object):
             print()
         print("*" * (len(head_words) + 4))
 
+    def do_move(self, move_action):
+        p_x, p_y = move_action
+        self.state_board[p_x][p_y] = self.cur_player_id
+
     def take_move_action(self, player, shown=True):
 
         next_move_action_id = self.board.next_valid_move_action()
 
         # 玩家决策
-        (p_x, p_y), _ = player.get_action(self.state_board,
+        move_action, _ = player.get_action(self.state_board,
                                           next_move_action_id)
 
         # 落子
-        self.state_board[p_x][p_y] = self.cur_player_id
+        self.do_move(move_action)
 
         if shown:
             # 根据当前的玩家，选择不同的策略，下一步棋
             now_hand = self.player_id2player_color[self.cur_player_id]
             print(f"第{self.round}轮对局,{now_hand} 正在落子....")
-            print(f"落子位置为({p_x},{p_y})")
+            print(f"落子位置为 {move_action}")
 
-        return p_x, p_y
+        return move_action
 
     def state_update(self, cur_move_action):
 
@@ -320,8 +323,7 @@ class game(object):
                 self.state_board, next_move_action_id)
             act_probs.append(act_prob)
             # 落子
-            (p_x, p_y) = cur_move_action
-            self.state_board[p_x][p_y] = self.cur_player_id
+            self.do_move(cur_move_action)
 
             is_end, winner = self.is_end(cur_move_action)
 
@@ -355,8 +357,8 @@ class human2:
 
 
 if __name__ == '__main__':
-    b = board()
-    g = game(b)
+    b = Board()
+    g = Game(b)
     # 测试对称操作
     # print(g.flip_move_action(move_action=(2, 1), center_pos=(0, 0)))
     # 测试棋盘

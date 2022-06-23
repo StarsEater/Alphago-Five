@@ -13,8 +13,9 @@
 Q' = W'/N' 
    = (W + dW)/(N+1) 
    = (W + dW)/(N + 1) - W/N + W/N 
-   =  (NdW - W) / (N + 1) + W/N 
-   =  N(dW-Q)/(N+1) + Q = (Q+NdW)/(N+1) 
+   = (NdW - W) / (N + 1)*N + W/N 
+   =  N(dW-Q)/(N+1)*N + Q
+   = Q + (dW-Q)/(N+1) 
 Q  = W/N
 + expand：
    

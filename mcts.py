@@ -1,11 +1,14 @@
 import numpy as np 
 from configs import args 
+from game_control import Game,Board
 class TreeNode:
     # 蒙特卡洛树的节点
     def __init__(self, parent, p):
         # 父亲节点
         self._parent = parent 
         # 平均动作价值
+        # 从父亲节点选择动作之后对于父亲节点的价值
+        # 这是由select 阶段的操作决定的
         self._q = 0  
         # 本节点的先验概率
         self._p = p
@@ -18,20 +21,21 @@ class TreeNode:
     
     def select(self):
         # 选择孩子当中得分最高的孩子返回
-        return max(self._children.items(), key = lambda act: act[1].get_value(c_puct),)
+        return max(self._children.items(), key = lambda act: act[1].get_value(args.c_puct),)
     
-    def expand(self, action_prior):
+    def expand(self, act_probs):
         # 根据模型预测得到的行为概率分布扩展新的节点
-        for act, prior in action_prior.items():
+        for act, prior in act_probs.items():
             if act not in self._children:
                 self._children[act] = TreeNode(self, prior)
     
     def update(self, leaf_value):
         # 将leaf_value的值或者是模型预测得到的分数，或者是在对弈结束产生的最终分数，反传
+        # 注意向上传的时候，数值是不断取负的
         if self._parent:
-            self.update(self._parent, leaf_value)
+            self._parent.update(-leaf_value)
         self._n_visits +=1
-        self._q += self._n_visits*(leaf_value-self._q)/(self._n_visits+1)
+        self._q += (leaf_value-self._q)/self._n_visits
 
     def get_value(self, c_puct):
         # 获得自身的分数
@@ -51,15 +55,68 @@ class TreeNode:
 
 class MCTS:
     # 蒙特卡洛树本体
-    def __init__(self):
+    def __init__(self, policy_value_fn):
         self._root = TreeNode(None,0)
+        self._policy_value_fn = policy_value_fn
+
     
     
-    def _playout(self):
-        # 一次内心戏，实际啥也没发生
+    def _playout(self, game:Game):
+        # 一次内心戏,实际啥也没发生
         # select 直到leaf node
         # expand leaf node 
         # backup update 
+        node = self._root
+       
+        # 选择
+        while True:
+            if node.is_leaf():
+                break
+            action, node = node.select()
+            game.do_move(action) # 推进局面
+            game.state_update(action)
+        
+        # 先判断当前是否已经结束，否则才扩展
+        is_end, winner = game.is_end(action)
+        act_probs, leaf_value = self._policy_value_fn(game.encode_state2numpy())
+        if is_end:
+            # 平局
+            if winner == 'tie':
+                leaf_value = 0.0
+            else:
+                leaf_value = (1.0 if winner == args.first_player_id   else -1.0)
+        else:
+            node.expand(act_probs)
+        # node 在选择阶段之后，为叶子节点
+        # 用模型预测当前局面的分数/游戏给出的分数
+        """
+                          黑
+                       /      \
+                     白1       白2 
+                  /   |   \
+                黑21 黑22  黑23
+        update更新的是节点的q值
+        节点的q值在select阶段被使用，是父亲选择动作节点考量之一
+        如白1的q值表示黑回合选择白1的分数之一
+        而模型对白1的预测分数表示这个局面对于白1的意义，如果是-1就是输了，
+        取负就是对于黑的分数
+
+        """
+        node.update(leaf_value)
+
+
+
+            
+
+
+            
+
+
+            
+
+
+
+
         
 
 
@@ -74,6 +131,7 @@ class MCTS_player:
     def get_action(self):
         actions = []
         actions_probs = []
+
         return action, action_probs
     
     def 
