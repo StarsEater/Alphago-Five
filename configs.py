@@ -2,6 +2,7 @@ import argparse
 
 parser = argparse.ArgumentParser()
 
+parser.add_argument("--debug", type=bool, default=False, help="是否为debug阶段")
 # 和棋盘强相关
 parser.add_argument("--border_size", type=int, default=3, help="表示棋盘的边长,需要为奇数")
 parser.add_argument("--placeholder_id",
@@ -39,7 +40,7 @@ parser.add_argument("--state_board_deque_maxlen",
 # 蒙特卡洛树搜索部分 # TODO
 parser.add_argument("--c_puct",
                     type=float,
-                    default=2,
+                    default=5,
                     help="表示在mcts过程中探索的权重，衡量Q和U之间的权重，默认为5")
 parser.add_argument("--n_playout",
                     type=int,
@@ -53,7 +54,7 @@ parser.add_argument("--temp",
 # todo 查询一下文献
 parser.add_argument("--dirichlet_coff",
                     type=float,
-                    defult=0.3,
+                    default=0.3,
                     help="返回dirichlet系数,在行为概率分布中添加dirichlet噪声")
 parser.add_argument("--p_d_coff",
                     type=float,
@@ -91,7 +92,7 @@ parser.add_argument("--res_stride", type=int, default=1, help="resnet中卷积�
 parser.add_argument("--res_padding", type=int, default=1, help="resnet中卷积核的填充")
 parser.add_argument("--n_res_blocks",
                     type=int,
-                    default=19,
+                    default=2,
                     help="resnet中block的个数")
 parser.add_argument("--res_act",
                     type=str,
@@ -158,7 +159,97 @@ parser.add_argument("--value_act_out",
                     choices=['relu', 'selu', 'gelu'],
                     default='tanh',
                     help="value头输出映射激活函数的选择，保证数值在[-1,1]")
+parser.add_argument("--c_policy",
+                    type=float,
+                    default=1.0,
+                    help="损失函数中policy的系数")
+parser.add_argument("--c_value",
+                    type=float,
+                    default=1.0,
+                    help="损失函数中value的系数")
 
 # transformer
 # todo
+# 模型保存/载入路径
+parser.add_argument("--model_save_dir",
+                    type=str,
+                    default='./model_saves',
+                    help="模型保存的目录路径")
+# 数据保存/载入路径
+parser.add_argument("--train_data_dir",
+                    type=str,
+                    default='./train_data',
+                    help="数据保存的目录路径")
+# 最新的模型保存文件名称
+parser.add_argument("--newest_model_path",
+                    type=str,
+                    default='newest_model.ckpt',
+                    help="模型保存的目录路径")
+# 最新的数据保存文件名称
+parser.add_argument("--newest_data_path",
+                    type=str,
+                    default='newest_data.pkl',
+                    help="数据保存的目录路径")
+
+
+# 训练过程中的超参数
+parser.add_argument("--n_epochs",
+                    type=int,
+                    default=2,
+                    help="训练轮次，默认为1000")
+parser.add_argument("--batch_size",
+                    type=int,
+                    default=8,
+                    help="批大小，默认为1000")
+
+parser.add_argument("--device",
+                    type=int,
+                    default=0,
+                    help="模型映射的GPU设备号")
+parser.add_argument("--optim_choice",
+                    type=str,
+                    choices=['adam', 'sgd'],
+                    default='adam',
+                    help="优化器的选择")
+parser.add_argument("--init_lr",
+                    type=float,
+                    default=1e-3,
+                    help="初始学习率")
+parser.add_argument("--weight_decay",
+                    type=float,
+                    default=1.0,
+                    help="权重衰减L2系数")
+# TODO
+parser.add_argument("--kl_div_threshold",
+                    type=float,
+                    default=0.02,
+                    help="权重衰减L2系数")
+parser.add_argument("--lr_multiplier",
+                    type=float,
+                    default=1.0,
+                    help="学习率乘法器，每次和学习率做乘法")
+parser.add_argument("--lr_min_threshold",
+                    type=float,
+                    default=1e-5,
+                    help="学习率下限")
+parser.add_argument("--save_loop",
+                    type=int,
+                    default=10,
+                    help="每过多少轮次保存一次")
+
+# 数据收集阶段
+parser.add_argument("--buffer_size",
+                    type=int,
+                    default=100000,
+                    help="存储数据的容量")
+parser.add_argument("--n_games",
+                    type=int,
+                    default=100,
+                    help="收集的总轮次，每次都会加载最新的模型")
+parser.add_argument("--save_data_loop",
+                    type=int,
+                    default=4,
+                    help="保存收集的数据的间隔")
+
+
 args = parser.parse_args()
