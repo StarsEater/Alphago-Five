@@ -1,5 +1,6 @@
 import random
 import copy
+from telnetlib import GA
 import numpy as np
 from collections import deque
 from configs import args
@@ -11,6 +12,9 @@ class Board(object):
         assert args.border_size % 2 == 1, print("border_size 需要为奇数")
         self.border_x = args.border_size
         self.border_y = args.border_size
+        self.reset_board()
+
+    def reset_board(self):
         self.state_board = np.zeros((self.border_x, self.border_y))
 
     @property
@@ -35,7 +39,7 @@ class Board(object):
         next_move_ids = [
             self.move_action2move_id[act] for act in next_move_actions
         ]
-        return list(zip(next_move_actions, next_move_ids))
+        return next_move_ids
 
     def visualize_board_state(self):
         pass
@@ -59,12 +63,11 @@ class Game(object):
 
         self.border_x = self.board.border_x
         self.border_y = self.board.border_y
-        self.state_board = self.board.state_board
 
         self.state_reset()
 
     def has_win(self, cur_move_action):
-
+        more_num = args.border_size
         x, y = cur_move_action
         cur_player_id = self.cur_player_id
         # 同一行的棋子
@@ -77,8 +80,9 @@ class Game(object):
             if self.state_board[x][j] != cur_player_id:
                 break
             row_nums += 1
-        if row_nums >= 5:  # TODO ==5 / >=5
-            print(f"行胜 {row_nums} ,落子为({x},{y})")
+        if row_nums >= more_num:  # TODO ==5 / >=5
+            if args.debug:
+                print(f"行胜 {row_nums} ,落子为({x},{y})")
             return True
 
         # 同一列的棋子
@@ -91,8 +95,9 @@ class Game(object):
             if self.state_board[i][y] != cur_player_id:
                 break
             col_nums += 1
-        if col_nums >= 5:  # TODO ==5 / >=5
-            print(f"列胜 {col_nums},落子为({x},{y})")
+        if col_nums >= more_num:  # TODO ==5 / >=5
+            if args.debug:
+                print(f"列胜 {col_nums},落子为({x},{y})")
             return True
 
         # 对角线的棋子
@@ -105,8 +110,9 @@ class Game(object):
             if self.state_board[x + d][y + d] != cur_player_id:
                 break
             diag_nums += 1
-        if diag_nums >= 5:
-            print(f"对角线胜 {diag_nums},落子为({x},{y})")
+        if diag_nums >= more_num:
+            if args.debug:
+                print(f"对角线胜 {diag_nums},落子为({x},{y})")
             return True
 
         # 反对角线
@@ -119,8 +125,9 @@ class Game(object):
             if self.state_board[x - d][y + d] != cur_player_id:
                 break
             bdiag_nums += 1
-        if bdiag_nums >= 5:
-            print(f"反对角线胜 {bdiag_nums},落子为({x},{y})")
+        if bdiag_nums >= more_num:
+            if args.debug:
+                print(f"反对角线胜 {bdiag_nums},落子为({x},{y})")
             return True
 
         return False
@@ -165,12 +172,8 @@ class Game(object):
 
     def take_move_action(self, player, shown=True):
 
-        next_move_action_id = self.board.next_valid_move_action()
-
         # 玩家决策
-        move_action, _ = player.get_action(self.state_board,
-                                          next_move_action_id)
-
+        move_action, _ = player.get_action(self)
         # 落子
         self.do_move(move_action)
 
@@ -199,6 +202,9 @@ class Game(object):
         self.board_state_deque.append(copy.deepcopy(self.state_board))
 
     def state_reset(self):
+
+        self.board.reset_board()
+        self.state_board = self.board.state_board
         # 当前手
         self.cur_player_id = args.first_player_id
 
@@ -249,8 +255,8 @@ class Game(object):
         bdiag_symm = (-relative_y + center_x, -relative_x + center_y)
 
         pos_symm = [
-            rotate_90, rotate_180, rotate_270, horiz_symm, vert_symm,
-            diag_symm, bdiag_symm
+            move_action, rotate_90, rotate_180, rotate_270, horiz_symm,
+            vert_symm, diag_symm, bdiag_symm
         ]
         return pos_symm
 
@@ -258,7 +264,7 @@ class Game(object):
         # 编码当前的棋盘和玩家状态为一个numpy矩阵
         # [border_size,border_size,]
         # [..,k//2]:前k轮当中当前手的棋盘状态
-        # [..,k//2]:前k轮当中当前手的棋盘状态
+        # [..,k//2]:前k轮当中对手的棋盘状态
         # [...,1]: 上一手的落子位置，其余位置为0
         # [...,1]: 剩余部分可以下的棋子
         last_k = args.state_board_deque_maxlen
@@ -279,81 +285,101 @@ class Game(object):
                     self.state_board[i][j] == args.placeholder_id)
         return state_board_np
 
-    def play_chess(self, player1, player2):
-        # 先手为player1, 后手为player2
-        self.state_reset()
-        player_id2player_inst = {
-            args.first_player_id: player1,
-            args.second_player_id: player2
+    @property
+    def valid_action_ids(self):
+        return self.board.next_valid_move_action()
+
+    @property
+    def id2action(self):
+        return self.board.move_id2move_action
+
+    @property
+    def action2id(self):
+        return self.board.move_action2move_id
+
+    @property
+    def parameters(self):
+        return {
+            "round": self.round,
+            "state_board": self.board.state_board,
+            "valid_ids": self.valid_action_ids,
+            "cur_player_id": self.cur_player_id
         }
-        first_hand = self.player_id2player_color[self.cur_player_id]
-        print(f"先手为 {first_hand}")
 
-        while True:
-            cur_player = player_id2player_inst[self.cur_player_id]
-            cur_move_action = self.take_move_action(cur_player)
-            is_end, winner = self.is_end(cur_move_action)
-            if is_end:
-                self.print_board()
-                if winner == 'tie':
-                    print('平局')
-                else:
-                    winner = self.player_id2player_color[winner]
-                    print(f"胜者为 {winner}")
-                break
-            self.state_update(cur_move_action)
 
-    def _self_play(self, mcts_player):
-        # TODO 未测试
-        # 先后手都是自己
-        # (encoded_state, award, winner)
-        self.state_reset()
-        states = []
-        act_probs = []
-        players = []
-        winner_z = []
+def play_chess(game: Game, player1, player2):
+    # 先手为player1, 后手为player2
+    game.state_reset()
+    player_id2player_inst = {
+        args.first_player_id: player1,
+        args.second_player_id: player2
+    }
+    first_hand = game.player_id2player_color[game.cur_player_id]
+    print(f"先手为 {first_hand}")
 
-        while True:
+    while True:
+        cur_player = player_id2player_inst[game.cur_player_id]
+        cur_move_action = game.take_move_action(cur_player)
+        is_end, winner = game.is_end(cur_move_action)
+        if is_end:
+            game.print_board()
+            if winner == 'tie':
+                print('平局')
+            else:
+                winner = game.player_id2player_color[winner]
+                print(f"胜者为 {winner}")
+            break
+        game.state_update(cur_move_action)
 
-            states.append(self.encode_state2numpy())
-            players.append(self.cur_player_id)
 
-            next_move_action_id = self.board.next_valid_move_action()
-            cur_move_action, act_prob = mcts_player.get_action(
-                self.state_board, next_move_action_id)
-            act_probs.append(act_prob)
-            # 落子
-            self.do_move(cur_move_action)
+def self_play(game: Game, mcts_player):
+    # TODO 未测试
+    # 先后手都是自己
+    # (encoded_state, award, winner)
+    game.state_reset()
+    states = []
+    act_probs = []
+    players = []
+    winner_z = []
 
-            is_end, winner = self.is_end(cur_move_action)
+    while True:
+        states.append(game.encode_state2numpy())
+        players.append(game.cur_player_id)
 
-            if is_end:
-                winner_z = [0] * len(states)
-                if winner == 'tie':
-                    pass
-                else:
-                    # 落子前的状态为必胜态，对应的，奖励1
-                    winner_z[-1::-2] = 1.0
-                    # 其他状态
-                    winner_z[-2::-2] = -1.0
+        cur_move_action, act_prob = mcts_player.get_action(game)
+        act_probs.append(act_prob)
+        # 落子
+        game.do_move(cur_move_action)
 
-                mcts_player.reset_player()
-                break
-            self.state_update(cur_move_action)
-        # 对应玩家落子序列，棋盘状态,action概率分布, 局面的value值
-        return players, zip(states, act_probs, winner_z)
+        is_end, winner = game.is_end(cur_move_action)
+
+        if is_end:
+            winner_z = np.zeros(len(states))
+            if winner == 'tie':
+                pass
+            else:
+                # 落子前的状态为必胜态，对应的，奖励1
+                winner_z[-1::-2] = 1.0
+                # 其他状态
+                winner_z[-2::-2] = -1.0
+
+            mcts_player.reset_player()
+            break
+        game.state_update(cur_move_action)
+    # 对应玩家落子序列，棋盘状态,action概率分布, 局面的value值
+    return players, zip(states, act_probs, winner_z)
 
 
 class human1:
 
-    def get_action(self, state_board, valid_move_ids):
-        return random.choice(valid_move_ids)
+    def get_action(self, game: Game):
+        return game.id2action[random.choice(game.valid_action_ids)],''
 
 
 class human2:
 
-    def get_action(self, state_board, valid_move_ids):
-        return random.choice(valid_move_ids)
+    def get_action(self, game: Game):
+        return game.id2action[random.choice(game.valid_action_ids)],''
 
 
 if __name__ == '__main__':
@@ -362,11 +388,11 @@ if __name__ == '__main__':
     # 测试对称操作
     # print(g.flip_move_action(move_action=(2, 1), center_pos=(0, 0)))
     # 测试棋盘
-    print(b.next_valid_move_action())
+    # print(b.next_valid_move_action())
     # 测试随机下棋
-    g.play_chess(human1(), human2())
+    play_chess(g, human1(), human2())
 
-    print(g.encode_state2numpy())
+    # print(g.encode_state2numpy())
 '''
      0 1 2 3 4
    0 X X _ _ O

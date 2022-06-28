@@ -1,8 +1,12 @@
 import copy
-from random import random
+import time
+import random
 import numpy as np
+from torch import rand
 from configs import args
 from game_control import Game, Board
+from net import ResNetForState
+from tools import stable_softmax
 
 
 class TreeNode:
@@ -39,7 +43,7 @@ class TreeNode:
     def update(self, leaf_value):
         # 将leaf_value的值或者是模型预测得到的分数，或者是在对弈结束产生的最终分数，反传
         # 注意向上传的时候，数值是不断取负的
-        if self._parent:
+        if self._parent is not None:
             self._parent.update(-leaf_value)
         self._n_visits += 1
         self._q += (leaf_value - self._q) / self._n_visits
@@ -60,17 +64,15 @@ class TreeNode:
         # 没有父亲的节点为根节点
         return self._parent is None
 
+    def __str__(self):
+        return f"q= {self._q}, p = {self._p} ,u = {self._u}, visits = {self._n_visits}"
+
 
 class MCTS:
     # 蒙特卡洛树本体
     def __init__(self, policy_value_fn=None):
         self._root = TreeNode(None, 0)
         self._policy_value_fn = policy_value_fn
-
-    def _exp_softmax(self, unnormal_probs):
-        exp_probs = np.exp(unnormal_probs)
-        exp_probs = exp_probs - max(exp_probs)
-        return np.softmax(exp_probs)
 
     def _playout(self, game: Game):
         # 一次内心戏,实际啥也没发生
@@ -79,19 +81,26 @@ class MCTS:
         # expand leaf node
         # backup update
         node = self._root
-
+        action = None
         # 选择
         while True:
-            if node.is_leaf():
+            if node.is_leaf:
                 break
-            action, node = node.select()
+            action_id, node = node.select()
+            action = game.id2action[action_id]
             game.do_move(action)  # 推进局面
             game.state_update(action)
 
         # 先判断当前是否已经结束，否则才扩展
-        is_end, winner = game.is_end(action)
+        if action is None:
+            is_end = False
+            winner = ""
+        else:
+            is_end, winner = game.is_end(action)
+        valid_action_ids = game.valid_action_ids
         act_probs, leaf_value = self._policy_value_fn(
-            game.encode_state2numpy())
+            game.encode_state2numpy(), valid_action_ids)
+        # print("result:", action, "--", is_end, "--", winner)
         if is_end:
             # 平局
             if winner == 'tie':
@@ -117,16 +126,17 @@ class MCTS:
         """
         node.update(-leaf_value)
 
-    def get_move_probs(self, game: Board):
+    def get_move_probs(self, game: Game):
         for _ in range(args.n_playout):
-            virtual_game = copy.deepcopy(game)
+            virtual_game = copy.deepcopy(
+                game)  # 必须拷贝，因为game的局面在一次游戏后已经固定了，需要从头开始下。
             self._playout(virtual_game)
 
-        act_visits = [(act, child.n_visits)
+        act_visits = [(act, child._n_visits)
                       for act, child in self._root._children.items()]
         act, visits = zip(*act_visits)
         # temp todo 也不知道是个啥
-        act_probs = np.softmax(1 / args.temp * np.log(np.array(visits)))
+        act_probs = stable_softmax(1 / args.temp * np.log(np.array(visits)))
         return act, act_probs
 
     def update_move_root(self, move_action):
@@ -135,33 +145,69 @@ class MCTS:
         else:
             self.root = TreeNode(None, 1)
 
+    def __str__(self):
+        from collections import deque
+        q = deque()
+        q.append(((-1, -1), self._root))
+        while (q):
+            h = len(q)
+            for i in range(h):
+                move, node = q.popleft()
+                print(move,
+                      "-->",
+                      id(node),
+                      " ",
+                      node,
+                      "==>",
+                      id(node._parent),
+                      end="|")
+                for k, v in node._children.items():
+                    q.append((k[0], v))
+                print()
+            print("*" * 6)
+        return "above is mcts "
+
 
 class MCTSPlayer:
     # 蒙特卡洛树玩家
-    def __init__(self, policy_value_fn=None):
+    def __init__(self, policy_value_fn=None, selfplay=False):
         self.policy_value_fn = policy_value_fn
         self.mcts = MCTS(policy_value_fn)
+        self._selfplay = selfplay
 
     def reset_player(self):
         # 重置mcts的root节点
         self.mcts.update_move_root(-1)
 
-    def get_action(self,
-                   state_board,
-                   valid_actions_ids,
-                   _selfplay,
-                   return_prob=False):
-        act, probs = self.mcts.get_move_probs(state_board)
+    def get_action(self, game: Game, think_time_record=False):
+        if think_time_record:
+            start = time.time()
+        acts, probs = self.mcts.get_move_probs(game)
+        acts = list(acts)
         # 不是_selfplay的情况下，不添加噪声
-        act = random.choice(
-            act,
+        act = np.random.choice(
+            acts,
             p=args.p_d_coff * np.array(probs) +
-            (1 - args.p_d_coff) * int(_selfplay) *
-            np.random.dirichlet(args.dirichlet_coff, np.ones(len(act))))
+            (1 - args.p_d_coff) * int(self._selfplay) *
+            np.random.dirichlet(args.dirichlet_coff * np.ones(len(acts))))
         self.mcts.update_move_root(act)
-        if return_prob:
-            return probs
+        full_probs = np.zeros(len(game.id2action))
+        full_probs[acts] = probs
+        if think_time_record:
+            print(f"think for {time.time()-start}")
+        return game.id2action[act], full_probs
+
+
+def policy_for_test(game_np, valid_ids):
+    probs = np.exp(np.ones(len(valid_ids)))
+    probs = probs / np.sum(probs)
+    return {id: pb for id, pb in zip(valid_ids, probs)}, 0.4
 
 
 if __name__ == '__main__':
-    m = MCTS()
+    g = Game(Board())
+    m = MCTS(policy_value_fn=ResNetForState())
+    # for i in range(3):
+    #     print(f"iteration {i}")
+    #     m._playout(copy.deepcopy(g))
+    #     print(m)
